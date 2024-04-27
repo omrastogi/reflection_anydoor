@@ -1,0 +1,3 @@
+pretrained_model: lightning_logs/version_19/checkpoints/epoch=50-step=112709.ckpt
+config_file: configs/anydoor.yaml
+save_memory: False
