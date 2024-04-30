@@ -1,0 +1,3 @@
+pretrained_model: lightning_logs/tweaked_8k_dataset/checkpoints/epoch=38-step=43094.ckpt
+config_file: configs/anydoor.yaml
+save_memory: False
