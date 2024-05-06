@@ -16,6 +16,9 @@ from ldm.modules.diffusionmodules.openaimodel import UNetModel, TimestepEmbedSeq
 from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.util import log_txt_as_img, exists, instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
+from transformers import CLIPTextModel, CLIPTokenizer
+import torch
+
 
 
 class ControlledUnetModel(UNetModel):
@@ -304,6 +307,21 @@ class ControlNet(nn.Module):
         return outs
 
 
+class TextEncoder():
+    def __init__(self):
+        self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+        self.model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
+
+    def encode(self, texts):
+        inputs = self.tokenizer(texts, padding=True, return_tensors="pt")
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        text_features = outputs.last_hidden_state
+        modified_text_features = torch.cat((text_features, text_features), dim=2)
+        return modified_text_features
+
+
+
 class ControlLDM(LatentDiffusion):
 
     def __init__(self, control_stage_config, control_key, only_mid_control, *args, **kwargs):
@@ -312,10 +330,24 @@ class ControlLDM(LatentDiffusion):
         self.control_key = control_key
         self.only_mid_control = only_mid_control
         self.control_scales = [1.0] * 13
+        self.text_feature = None
+
+        # self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+        # self.model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
+        self.text_encoder = TextEncoder()
+    
+
 
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
         x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs)
+        print(x.shape)
+        print(c.shape)
+        # Experimenting
+        if 'text' in batch and batch['text']:
+            self.text_feature = self.text_encoder.encode(batch['text']).to(c.device)
+            c = torch.cat((c, self.text_feature), dim=1)
+        # c = torch.cat((c, torch.zeros(c.shape[0], 1, 1024, device=c.device)), dim=1)
         control = batch[self.control_key]
         if bs is not None:
             control = control[:bs]
@@ -342,6 +374,9 @@ class ControlLDM(LatentDiffusion):
     @torch.no_grad()
     def get_unconditional_conditioning(self, N):
         uncond =  self.get_learned_conditioning([ torch.zeros((1,3,224,224)) ] * N)
+        if self.text_feature is not None:
+            uncond = torch.cat((uncond,  self.text_feature.to(uncond.device)), dim=1)
+        # Make changes to all the outputs of DINO
         return uncond
 
     @torch.no_grad()

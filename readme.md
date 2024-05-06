@@ -163,3 +163,16 @@ If you find this codebase useful for your research, please use the following ent
   year={2023}
 }
 ```
+# Our Changes:
+
+1. **Created New Dataloaders:**
+  
+  a. `dataset/mirrors.py`
+  
+  b. `dataset/mirror_counterfactual.py`
+
+2. **Improved Mask Loading Performance:**
+
+  a. Removed the thresholding on the mask in the `get_sample()` function of dataloaders.
+  
+  b. Added a line `mask = mask/255` in the `check_mask_area()` of class `BaseDataset` in `base.py`.

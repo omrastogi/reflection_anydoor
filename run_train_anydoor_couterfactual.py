@@ -15,8 +15,8 @@ from torch.utils.data import DataLoader
 # from datasets.fashiontryon import FashionTryonDataset
 # from datasets.lvis import LvisDataset
 import sys
-sys.path.append('/raid/ankit/om/AnyDoor/datasets')
-sys.path.append('/raid/ankit/om/AnyDoor')
+sys.path.append('/data/om/reflection_anydoor/datasets')
+sys.path.append('/data/om/reflection_anydoor')
 
 from mirrors import MirrorsDataset
 from mirrors_couterfactual import MirrorsCounterfactualDataset
@@ -25,7 +25,6 @@ from cldm.model import create_model, load_state_dict
 from torch.utils.data import ConcatDataset
 from cldm.hack import disable_verbosity, enable_sliced_attention
 from omegaconf import OmegaConf
-import wandb
 
 save_memory = False
 disable_verbosity()
@@ -33,7 +32,7 @@ if save_memory:
     enable_sliced_attention()
 
 # Configs
-resume_path = '/raid/ankit/om/AnyDoor/model-weights/epoch=1-step=8687.ckpt'
+resume_path = '/data/om/reflection_anydoor/checkpoints/epoch=106-step=25572.ckpt'
 batch_size = 4
 logger_freq = 300
 learning_rate = 1e-5
@@ -76,11 +75,11 @@ DConf = OmegaConf.load('./configs/datasets.yaml')
 # wandb.init(project="anydoor_inpainting")
 # wandb_logger = WandbLogger()
 
-wandb.init(
-        project="anydoor"
-    )
-wandb.login(key="39e65ab86c39c92f1b18458c6cc56fee691e0705")
-print("running wandb init")
+# wandb.init(
+#         project="anydoor"
+#     )
+# wandb.login(key="39e65ab86c39c92f1b18458c6cc56fee691e0705")
+# print("running wandb init")
 
 dataset = MirrorsCounterfactualDataset(**DConf.Train.MirrorsCounterfactual)
 dataloader = DataLoader(dataset, num_workers=4, batch_size=batch_size, shuffle=True)

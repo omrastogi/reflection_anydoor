@@ -8,8 +8,8 @@ from cldm.model import create_model, load_state_dict
 from cldm.ddim_hacked import DDIMSampler
 from cldm.hack import disable_verbosity, enable_sliced_attention
 import sys
-sys.path.append('/raid/ankit/om/AnyDoor/datasets')
-sys.path.append('/raid/ankit/om/AnyDoor')
+sys.path.append('/data/om/reflection_anydoor/datasets')
+sys.path.append('/data/om/reflection_anydoor')
 
 from data_utils import * 
 cv2.setNumThreads(0)
@@ -29,7 +29,7 @@ config = OmegaConf.load('./configs/inference.yaml')
 model_ckpt =  config.pretrained_model
 model_config = config.config_file
 
-model = create_model(model_config ).cpu()
+model = create_model(model_config).cuda()
 print(model_ckpt)
 model.load_state_dict(load_state_dict(model_ckpt, location='cuda'))
 model = model.cuda()
@@ -118,6 +118,12 @@ def process_pairs(ref_image, ref_mask, tar_image, tar_mask):
     cropped_target_image = cv2.resize(cropped_target_image, (512,512)).astype(np.float32)
     collage = cv2.resize(collage, (512,512)).astype(np.float32)
     collage_mask  = (cv2.resize(collage_mask, (512,512)).astype(np.float32) > 0.5).astype(np.float32)
+    
+    cv2.imwrite('inf_image.png', ref_image)
+    cv2.imwrite('inf_ref.png', masked_ref_image_aug)
+    cv2.imwrite('inf_cropped_target.png', cropped_target_image)
+    cv2.imwrite('inf_hint.png', collage)
+
 
     masked_ref_image_aug = masked_ref_image_aug  / 255 
     cropped_target_image = cropped_target_image / 127.5 - 1.0
@@ -154,6 +160,7 @@ def crop_back( pred, tar_image,  extra_sizes, tar_box_yyxx_crop):
 
 def inference_single_image(ref_image, ref_mask, tar_image, tar_mask, guidance_scale = 5.0):
     item = process_pairs(ref_image, ref_mask, tar_image, tar_mask)
+    
     ref = item['ref'] * 255
     tar = item['jpg'] * 127.5 + 127.5
     hint = item['hint'] * 127.5 + 127.5
@@ -299,9 +306,9 @@ if __name__ == '__main__':
     DConf = OmegaConf.load('./configs/datasets.yaml')
     root_dir = DConf.Train.Mirrors.data_dir
     # root_dir = "/raid/ankit/om/dataset/MSD/test"
-    masks_dir = f"{root_dir}/mask"
-    images_dir = f"{root_dir}/image"
-    save_dir = './MIRRORS_OUTPUT_IMAGE_51_EPOCHS'
+    masks_dir = f"{root_dir}/masks"
+    images_dir = f"{root_dir}/images"
+    save_dir = './MIRRORS_OUTPUT_CHECKING_WITHOUT_TEXT'
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
     for image_name in os.listdir(masks_dir):

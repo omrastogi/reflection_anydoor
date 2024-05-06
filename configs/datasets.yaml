@@ -57,7 +57,10 @@ Train:
     HFlickr_root: path/HFlickr/masks/
 
   Mirrors:
-    data_dir: /raid/ankit/om/dataset/MSD/test
+    data_dir: /data/om/reflection_anydoor/dataset/test
+
+  MirrorsCounterfactual:
+    data_dir: /data/om/reflection_anydoor/dataset/test
 
 Test:
   DreamBooth:

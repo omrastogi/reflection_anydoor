@@ -15,8 +15,11 @@ from torch.utils.data import DataLoader
 # from datasets.fashiontryon import FashionTryonDataset
 # from datasets.lvis import LvisDataset
 import sys
-sys.path.append('/raid/ankit/om/AnyDoor/datasets')
-sys.path.append('/raid/ankit/om/AnyDoor')
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="3"
+sys.path.append('/data/om/reflection_anydoor/datasets')
+sys.path.append('/data/om/reflection_anydoor')
+
 
 from mirrors import MirrorsDataset
 from cldm.logger import ImageLogger
@@ -31,7 +34,7 @@ if save_memory:
     enable_sliced_attention()
 
 # Configs
-resume_path = '/raid/ankit/om/AnyDoor/model-weights/epoch=1-step=8687.ckpt'
+resume_path = '/data/om/reflection_anydoor/checkpoints/epoch=106-step=25572.ckpt'
 batch_size = 4
 logger_freq = 1000
 learning_rate = 1e-5

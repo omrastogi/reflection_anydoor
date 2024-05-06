@@ -5,11 +5,12 @@ import torch
 import random
 from pytorch_lightning import seed_everything
 from cldm.model import create_model, load_state_dict
+from cldm.cldm import TextEncoder
 from cldm.ddim_hacked import DDIMSampler
 from cldm.hack import disable_verbosity, enable_sliced_attention
 import sys
-sys.path.append('/raid/ankit/om/AnyDoor/datasets')
-sys.path.append('/raid/ankit/om/AnyDoor')
+sys.path.append('/data/om/reflection_anydoor/datasets')
+sys.path.append('/data/om/reflection_anydoor')
 
 from data_utils import * 
 cv2.setNumThreads(0)
@@ -34,6 +35,7 @@ print(model_ckpt)
 model.load_state_dict(load_state_dict(model_ckpt, location='cuda'))
 model = model.cuda()
 ddim_sampler = DDIMSampler(model)
+text_encoder = TextEncoder()
 
 
 
@@ -106,7 +108,7 @@ def process_pairs(ref_image, ref_mask, tar_image, tar_mask):
 
     collage_mask = cropped_target_image.copy() * 0.0
     collage_mask[y1:y2,x1:x2,:] = 1.0
-
+     
     # the size before pad
     H1, W1 = collage.shape[0], collage.shape[1]
     cropped_target_image = pad_to_square(cropped_target_image, pad_value = 0, random = False).astype(np.uint8)
@@ -119,10 +121,16 @@ def process_pairs(ref_image, ref_mask, tar_image, tar_mask):
     collage = cv2.resize(collage, (512,512)).astype(np.float32)
     collage_mask  = (cv2.resize(collage_mask, (512,512)).astype(np.float32) > 0.5).astype(np.float32)
 
+    cv2.imwrite('inf_image.png', ref_image)
+    cv2.imwrite('inf_ref.png', masked_ref_image_aug)
+    cv2.imwrite('inf_cropped_target.png', cropped_target_image)
+    cv2.imwrite('inf_hint.png', collage)
+
     masked_ref_image_aug = masked_ref_image_aug  / 255 
     cropped_target_image = cropped_target_image / 127.5 - 1.0
     collage = collage / 127.5 - 1.0 
     collage = np.concatenate([collage, collage_mask[:,:,:1]  ] , -1)
+    # collage = masked_ref_image_aug.copy()
 
     item = dict(ref=masked_ref_image_aug.copy(), jpg=cropped_target_image.copy(), hint=collage.copy(), extra_sizes=np.array([H1, W1, H2, W2]), tar_box_yyxx_crop=np.array( tar_box_yyxx_crop ) ) 
     return item
@@ -152,7 +160,7 @@ def crop_back( pred, tar_image,  extra_sizes, tar_box_yyxx_crop):
     return gen_image
 
 
-def inference_single_image(ref_image, ref_mask, tar_image, tar_mask, guidance_scale = 5.0):
+def inference_single_image(ref_image, ref_mask, tar_image, tar_mask, guidance_scale = 5.0, text=""):
     item = process_pairs(ref_image, ref_mask, tar_image, tar_mask)
     ref = item['ref'] * 255
     tar = item['jpg'] * 127.5 + 127.5
@@ -184,7 +192,11 @@ def inference_single_image(ref_image, ref_mask, tar_image, tar_mask, guidance_sc
     guess_mode = False
     H,W = 512,512
 
-    cond = {"c_concat": [control], "c_crossattn": [model.get_learned_conditioning( clip_input )]}
+    dino_feature = model.get_learned_conditioning(clip_input)
+    if text:
+        text_feature = text_encoder.encode(text).to(dino_feature.device)
+        dino_feature = torch.cat((dino_feature, text_feature), dim=1) 
+    cond = {"c_concat": [control], "c_crossattn": [dino_feature]}
     un_cond = {"c_concat": None if guess_mode else [control], "c_crossattn": [model.get_learned_conditioning([torch.zeros((1,3,224,224))] * num_samples)]}
     shape = (4, H // 8, W // 8)
 
@@ -257,51 +269,14 @@ if __name__ == '__main__':
     
     cv2.imwrite(save_path, vis_image [:,:,::-1])
     '''
-    #'''
-    # # ==== Example for inferring VITON-HD Test dataset ===
-
-    # from omegaconf import OmegaConf
-    # import os 
-    # DConf = OmegaConf.load('./configs/datasets.yaml')
-    # save_dir = './VITONGEN'
-    # if not os.path.exists(save_dir):
-    #     os.mkdir(save_dir)
-
-    # test_dir = DConf.Test.VitonHDTest.image_dir
-    # image_names = os.listdir(test_dir)
-    
-    # for image_name in image_names:
-    #     ref_image_path = os.path.join(test_dir, image_name)
-    #     tar_image_path = ref_image_path.replace('/cloth/', '/image/')
-    #     ref_mask_path = ref_image_path.replace('/cloth/','/cloth-mask/')
-    #     tar_mask_path = ref_image_path.replace('/cloth/', '/image-parse-v3/').replace('.jpg','.png')
-
-    #     ref_image = cv2.imread(ref_image_path)
-    #     ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
-
-    #     gt_image = cv2.imread(tar_image_path)
-    #     gt_image = cv2.cvtColor(gt_image, cv2.COLOR_BGR2RGB)
-
-    #     ref_mask = (cv2.imread(ref_mask_path) > 128).astype(np.uint8)[:,:,0]
-
-    #     tar_mask = Image.open(tar_mask_path ).convert('P')
-    #     tar_mask= np.array(tar_mask)
-    #     tar_mask = tar_mask == 5
-
-    #     gen_image = inference_single_image(ref_image, ref_mask, gt_image.copy(), tar_mask)
-    #     gen_path = os.path.join(save_dir, image_name)
-
-    #     vis_image = cv2.hconcat([ref_image, gt_image, gen_image])
-    #     cv2.imwrite(gen_path, vis_image[:,:,::-1])
-    #'''
     from omegaconf import OmegaConf
     import os 
     DConf = OmegaConf.load('./configs/datasets.yaml')
     root_dir = DConf.Train.Mirrors.data_dir
-    root_dir = "/raid/ankit/om/dataset/MSD/train"
-    masks_dir = f"{root_dir}/mask"
-    images_dir = f"{root_dir}/image"
-    save_dir = './MIRRORS_OUTPUT_IMAGE_38_EPOCH_TEST'
+    root_dir = "/data/om/reflection_anydoor/dataset/train"
+    masks_dir = f"{root_dir}/masks"
+    images_dir = f"{root_dir}/images"
+    save_dir = './MIRRORS_OUTPUT_IMAGE_TEXT_COND_TRAINED_TRAINSET_EPOCH8'
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
     for image_name in os.listdir(masks_dir):
@@ -317,8 +292,8 @@ if __name__ == '__main__':
         ref_mask = (ref_mask > 0).astype(np.uint8)
         tar_mask = ref_mask.copy()
         tar_image = ref_image.copy()
-
-        gen_image = inference_single_image(ref_image, ref_mask, tar_image, tar_mask)
+        text = "A perfect planar mirror"
+        gen_image = inference_single_image(ref_image, ref_mask, tar_image, tar_mask, text=text)
         gen_path = os.path.join(save_dir, image_name)
 
         vis_image = cv2.hconcat([ref_image, gen_image])

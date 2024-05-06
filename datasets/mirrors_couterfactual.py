@@ -8,10 +8,11 @@ import cv2
 from data_utils import * 
 from base import BaseDataset
 
-class MirrorsDataset(BaseDataset):
+class MirrorsCounterfactualDataset(BaseDataset):
     def __init__(self, data_dir):
         self.images_dir = f"{data_dir}/images"
         self.masks_dir = f"{data_dir}/masks"
+        self.def_dir = f"{data_dir}/deformed"
 
         self.data = os.listdir(self.masks_dir)
         self.size = (512, 640)
@@ -38,26 +39,28 @@ class MirrorsDataset(BaseDataset):
 
     def get_sample(self, idx):
         ref_mask_path = os.path.join(self.masks_dir, self.data[idx])
-        ref_image_path = os.path.join(self.images_dir, self.data[idx])
-
+        ref_image_path = os.path.join(self.def_dir, self.data[idx])
+        tar_image_path = os.path.join(self.images_dir, self.data[idx])
         ref_mask = cv2.imread(ref_mask_path)
         ref_mask = cv2.cvtColor(ref_mask, cv2.COLOR_BGR2GRAY)
 
         ref_image = cv2.imread(ref_image_path)
         ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
 
+        tar_image = cv2.imread(tar_image_path)
+        tar_image = cv2.cvtColor(tar_image, cv2.COLOR_BGR2RGB)
+
         # ref_mask = (ref_mask > 0).astype(np.uint8)
-        # removed the thresholding on the mask
         tar_mask = ref_mask.copy()
-        tar_image = ref_image.copy()
         # cv2.imwrite('ref_mask0.png', ref_mask)
 
         item_with_collage = self.process_pairs(ref_image, ref_mask, tar_image, tar_mask, max_ratio = 1.0)
         sampled_time_steps = self.sample_timestep()
         item_with_collage['time_steps'] = sampled_time_steps
+        item_with_collage['text'] = "a perfect reflective planar mirror"
         return item_with_collage
     
 if __name__ == "__main__":
-    dataset = MirrorsDataset(data_dir="/raid/ankit/om/dataset/All_Data")
+    dataset = MirrorsCounterfactualDataset(data_dir="/raid/ankit/om/dataset/MSD/test")
     k = dataset[123]
-    print(k)
+    # print(k)
