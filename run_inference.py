@@ -264,51 +264,14 @@ if __name__ == '__main__':
     
     cv2.imwrite(save_path, vis_image [:,:,::-1])
     '''
-    #'''
-    # # ==== Example for inferring VITON-HD Test dataset ===
-
-    # from omegaconf import OmegaConf
-    # import os 
-    # DConf = OmegaConf.load('./configs/datasets.yaml')
-    # save_dir = './VITONGEN'
-    # if not os.path.exists(save_dir):
-    #     os.mkdir(save_dir)
-
-    # test_dir = DConf.Test.VitonHDTest.image_dir
-    # image_names = os.listdir(test_dir)
-    
-    # for image_name in image_names:
-    #     ref_image_path = os.path.join(test_dir, image_name)
-    #     tar_image_path = ref_image_path.replace('/cloth/', '/image/')
-    #     ref_mask_path = ref_image_path.replace('/cloth/','/cloth-mask/')
-    #     tar_mask_path = ref_image_path.replace('/cloth/', '/image-parse-v3/').replace('.jpg','.png')
-
-    #     ref_image = cv2.imread(ref_image_path)
-    #     ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
-
-    #     gt_image = cv2.imread(tar_image_path)
-    #     gt_image = cv2.cvtColor(gt_image, cv2.COLOR_BGR2RGB)
-
-    #     ref_mask = (cv2.imread(ref_mask_path) > 128).astype(np.uint8)[:,:,0]
-
-    #     tar_mask = Image.open(tar_mask_path ).convert('P')
-    #     tar_mask= np.array(tar_mask)
-    #     tar_mask = tar_mask == 5
-
-    #     gen_image = inference_single_image(ref_image, ref_mask, gt_image.copy(), tar_mask)
-    #     gen_path = os.path.join(save_dir, image_name)
-
-    #     vis_image = cv2.hconcat([ref_image, gt_image, gen_image])
-    #     cv2.imwrite(gen_path, vis_image[:,:,::-1])
-    #'''
     from omegaconf import OmegaConf
     import os 
     DConf = OmegaConf.load('./configs/datasets.yaml')
     root_dir = DConf.Train.Mirrors.data_dir
-    # root_dir = "/raid/ankit/om/dataset/MSD/test"
+    root_dir = "/data/om/reflection_anydoor/dataset/sync_dreamer"
     masks_dir = f"{root_dir}/masks"
     images_dir = f"{root_dir}/images"
-    save_dir = './MIRRORS_OUTPUT_CHECKING_WITHOUT_TEXT'
+    save_dir = './SYNC_DREAMER_OUTPUT'
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
     for image_name in os.listdir(masks_dir):

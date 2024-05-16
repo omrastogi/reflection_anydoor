@@ -13,6 +13,7 @@ class MirrorsCounterfactualDataset(BaseDataset):
         self.images_dir = f"{data_dir}/images"
         self.masks_dir = f"{data_dir}/masks"
         self.def_dir = f"{data_dir}/deformed"
+        self.symmetry_dir = f"/data/om/reflection_anydoor/dataset/symmetry_mask"
 
         self.data = os.listdir(self.masks_dir)
         self.size = (512, 640)
@@ -41,6 +42,16 @@ class MirrorsCounterfactualDataset(BaseDataset):
         ref_mask_path = os.path.join(self.masks_dir, self.data[idx])
         ref_image_path = os.path.join(self.def_dir, self.data[idx])
         tar_image_path = os.path.join(self.images_dir, self.data[idx])
+        symmetry_mask_path = os.path.join(self.symmetry_dir, self.data[idx])
+
+        if not os.path.exists(symmetry_mask_path):
+            symmetry_mask = None
+        else:
+            symmetry_mask = cv2.imread(symmetry_mask_path)
+            symmetry_mask = cv2.cvtColor(symmetry_mask, cv2.COLOR_BGR2GRAY)
+            _, symmetry_mask = cv2.threshold(symmetry_mask, 127, 255, cv2.THRESH_BINARY)
+            symmetry_mask = cv2.resize(symmetry_mask, (512, 512))
+
         ref_mask = cv2.imread(ref_mask_path)
         ref_mask = cv2.cvtColor(ref_mask, cv2.COLOR_BGR2GRAY)
 
@@ -54,13 +65,14 @@ class MirrorsCounterfactualDataset(BaseDataset):
         tar_mask = ref_mask.copy()
         # cv2.imwrite('ref_mask0.png', ref_mask)
 
-        item_with_collage = self.process_pairs(ref_image, ref_mask, tar_image, tar_mask, max_ratio = 1.0)
+        item_with_collage = self.process_pairs_rev(ref_image, ref_mask, tar_image, tar_mask, max_ratio = 1.0)
         sampled_time_steps = self.sample_timestep()
         item_with_collage['time_steps'] = sampled_time_steps
         item_with_collage['text'] = "a perfect reflective planar mirror"
+        item_with_collage["symmetry_mask"] = symmetry_mask / 255
         return item_with_collage
     
 if __name__ == "__main__":
-    dataset = MirrorsCounterfactualDataset(data_dir="/raid/ankit/om/dataset/MSD/test")
+    dataset = MirrorsCounterfactualDataset(data_dir="/data/om/reflection_anydoor/dataset/test")
     k = dataset[123]
     # print(k)

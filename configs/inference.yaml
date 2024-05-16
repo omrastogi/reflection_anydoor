@@ -1,3 +1,4 @@
-pretrained_model: /data/om/reflection_anydoor/checkpoints/epoch=8-step=2150.ckpt
+pretrained_model: /data/om/reflection_anydoor/important_checkpoints/counterfactual_text_cond_rev_mask_epoch=999-step=238999.ckpt
+# pretrained_model: /data/om/reflection_anydoor/important_checkpoints/counterfactual_training_epoch=106-step=25572.ckpt
 config_file: configs/anydoor.yaml
 save_memory: False

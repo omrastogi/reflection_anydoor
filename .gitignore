@@ -36,5 +36,5 @@ MIRRORS_OUTPUT_IMAGE_51_EPOCHS/
 MIRRORS_OUTPUT_IMAGE_TEXT_COND_TRAINED_TRAINSET_EPOCH8/
 checkpoints/
 dataset/
-lightening_logs/
+lightning_logs/
 model-weights/

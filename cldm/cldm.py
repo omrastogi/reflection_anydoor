@@ -14,15 +14,16 @@ from torchvision.utils import make_grid
 from ldm.modules.attention import SpatialTransformer
 from ldm.modules.diffusionmodules.openaimodel import UNetModel, TimestepEmbedSequential, ResBlock, Downsample, AttentionBlock
 from ldm.models.diffusion.ddpm import LatentDiffusion
-from ldm.util import log_txt_as_img, exists, instantiate_from_config
+from ldm.util import log_txt_as_img, exists, instantiate_from_config, default
 from ldm.models.diffusion.ddim import DDIMSampler
 from transformers import CLIPTextModel, CLIPTokenizer
 import torch
 
 
-
 class ControlledUnetModel(UNetModel):
     def forward(self, x, timesteps=None, context=None, control=None, only_mid_control=False, **kwargs):
+        import pdb 
+        pdb.set_trace()
         hs = []
         with torch.no_grad():
             t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
@@ -32,6 +33,7 @@ class ControlledUnetModel(UNetModel):
                 h = module(h, emb, context)
                 hs.append(h)
             h = self.middle_block(h, emb, context)
+            
 
         if control is not None:
             h += control.pop()
@@ -331,23 +333,28 @@ class ControlLDM(LatentDiffusion):
         self.only_mid_control = only_mid_control
         self.control_scales = [1.0] * 13
         self.text_feature = None
-
+        self.symmetry_mask = None
         # self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
         # self.model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
         self.text_encoder = TextEncoder()
-    
 
 
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
         x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs)
-        print(x.shape)
-        print(c.shape)
+        # print(x.shape)
+        # print(c.shape)
         # Experimenting
         if 'text' in batch and batch['text']:
             self.text_feature = self.text_encoder.encode(batch['text']).to(c.device)
             c = torch.cat((c, self.text_feature), dim=1)
-        # c = torch.cat((c, torch.zeros(c.shape[0], 1, 1024, device=c.device)), dim=1)
+
+        if 'symmetry_mask' in batch and batch["symmetry_mask"] is not None:
+            batch["symmetry_mask"] = batch["symmetry_mask"].unsqueeze(1)
+            self.symmetry_mask = F.interpolate(
+                                input=batch["symmetry_mask"], size=(64, 64)
+                            )
+
         control = batch[self.control_key]
         if bs is not None:
             control = control[:bs]
@@ -356,6 +363,63 @@ class ControlLDM(LatentDiffusion):
         control = control.to(memory_format=torch.contiguous_format).float()
         self.time_steps = batch['time_steps']
         return x, dict(c_crossattn=[c], c_concat=[control])
+    
+    def p_losses(self, x_start, cond, t, noise=None):
+        noise = default(noise, lambda: torch.randn_like(x_start))
+        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        import pdb 
+        pdb.set_trace()
+        model_output = self.apply_model(x_noisy, t, cond)
+
+        loss_dict = {}
+        prefix = 'train' if self.training else 'val'
+
+        if self.parameterization == "x0":
+            target = x_start
+        elif self.parameterization == "eps":
+            target = noise
+        elif self.parameterization == "v":
+            target = self.get_v(x_start, noise, t)
+        else:
+            raise NotImplementedError()
+
+        loss_simple = self.get_loss(model_output, target, mean=False) 
+        #boundary = self.boundary.to(loss_simple.device)
+        #boundary = F.interpolate(boundary, size = (64,64)) * 5 + 1.0 #16,1,64,64
+        #print(loss_simple.shape) #16,4,64,64
+        loss_simple = loss_simple.mean([1, 2, 3])
+        #.mean([1, 2, 3])
+        loss_dict.update({f'{prefix}/loss_simple': loss_simple.mean()})
+
+        logvar_t = self.logvar[t].to(self.device)
+        loss = loss_simple / torch.exp(logvar_t) + logvar_t
+        # loss = loss_simple / torch.exp(self.logvar) + self.logvar
+        if self.learn_logvar:
+            loss_dict.update({f'{prefix}/loss_gamma': loss.mean()})
+            loss_dict.update({'logvar': self.logvar.data.mean()})
+
+        loss = self.l_simple_weight * loss.mean()
+
+        loss_vlb = self.get_loss(model_output, target, mean=False).mean(dim=(1, 2, 3))
+        loss_vlb = (self.lvlb_weights[t] * loss_vlb).mean()
+        loss_dict.update({f'{prefix}/loss_vlb': loss_vlb})
+        loss += (self.original_elbo_weight * loss_vlb)
+        # import pdb 
+        # pdb.set_trace() 
+        if self.symmetry_mask is not None:
+            print("shapes", model_output.shape, self.symmetry_mask.shape)
+            model_output = model_output * self.symmetry_mask
+            target = target * self.symmetry_mask
+
+            loss_masked = self.get_loss(model_output, target, mean=False).mean()
+            loss_dict.update({f'{prefix}/loss_masked': loss})
+            loss = 0.4 * loss + 0.6 * loss_masked
+
+        loss_dict.update({f'{prefix}/loss': loss})
+
+        #print(self.parameterization, self.learn_logvar, self.original_elbo_weight, self.lvlb_weights[t])
+
+        return loss, loss_dict
 
     def apply_model(self, x_noisy, t, cond, *args, **kwargs):
         assert isinstance(cond, dict)

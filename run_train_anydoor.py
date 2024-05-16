@@ -1,19 +1,6 @@
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
-# from lightning.pytorch.loggers import WandbLogger
-
-# from datasets.ytb_vos import YoutubeVOSDataset
-# from datasets.ytb_vis import YoutubeVISDataset
-# from datasets.saliency_modular import SaliencyDataset
-# from datasets.vipseg import VIPSegDataset
-# from datasets.mvimagenet import MVImageNetDataset
-# from datasets.sam import SAMDataset
-# from datasets.uvo import UVODataset
-# from datasets.uvo_val import UVOValDataset
-# from datasets.mose import MoseDataset
-# from datasets.vitonhd import VitonHDDataset
-# from datasets.fashiontryon import FashionTryonDataset
-# from datasets.lvis import LvisDataset
+from pytorch_lightning.loggers import WandbLogger
 import sys
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="3"
@@ -34,7 +21,7 @@ if save_memory:
     enable_sliced_attention()
 
 # Configs
-resume_path = '/data/om/reflection_anydoor/checkpoints/epoch=106-step=25572.ckpt'
+resume_path = '/data/om/reflection_anydoor/checkpoints/counterfactual_training_epoch=106-step=25572.ckpt'
 batch_size = 4
 logger_freq = 1000
 learning_rate = 1e-5
@@ -52,36 +39,26 @@ model.only_mid_control = only_mid_control
 
 # Datasets
 DConf = OmegaConf.load('./configs/datasets.yaml')
-# dataset1 = YoutubeVOSDataset(**DConf.Train.YoutubeVOS)  
-# dataset2 =  SaliencyDataset(**DConf.Train.Saliency) 
-# dataset3 = VIPSegDataset(**DConf.Train.VIPSeg) 
-# dataset4 = YoutubeVISDataset(**DConf.Train.YoutubeVIS) 
-# dataset5 = MVImageNetDataset(**DConf.Train.MVImageNet)
-# dataset6 = SAMDataset(**DConf.Train.SAM)
-# dataset7 = UVODataset(**DConf.Train.UVO.train)
-# dataset8 = VitonHDDataset(**DConf.Train.VitonHD)
-# dataset9 = UVOValDataset(**DConf.Train.UVO.val)
-# dataset10 = MoseDataset(**DConf.Train.Mose)
-# dataset11 = FashionTryonDataset(**DConf.Train.FashionTryon)
-# dataset12 = LvisDataset(**DConf.Train.Lvis)
 
-# image_data = [dataset2, dataset6, dataset12]
-# video_data = [dataset1, dataset3, dataset4, dataset7, dataset9, dataset10 ]
-# tryon_data = [dataset8, dataset11]
-# threed_data = [dataset5]
-
-# The ratio of each dataset is adjusted by setting the __len__ 
-# dataset = ConcatDataset( image_data + video_data + tryon_data +  threed_data + video_data + tryon_data +  threed_data  )
-# import wandb
-# wandb.login(key='39e65ab86c39c92f1b18458c6cc56fee691e0705')
-# wandb.init(project="anydoor_inpainting")
-# wandb_logger = WandbLogger()
-
+import wandb
+from datetime import datetime
+wandb.login(key='39e65ab86c39c92f1b18458c6cc56fee691e0705')
+wandb.init(project="anydoor_inpainting")
+wandb.run.name = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+wandb_logger = WandbLogger()
 
 dataset = MirrorsDataset(**DConf.Train.Mirrors)
 dataloader = DataLoader(dataset, num_workers=4, batch_size=batch_size, shuffle=True)
 logger = ImageLogger(batch_frequency=logger_freq)
-trainer = pl.Trainer(gpus=[0], strategy="ddp", precision=16, accelerator="gpu", callbacks=[logger], progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
+trainer = pl.Trainer(
+    gpus=[0], 
+    strategy="ddp", 
+    precision=16, 
+    accelerator="gpu", 
+    progress_bar_refresh_rate=1, 
+    accumulate_grad_batches=accumulate_grad_batches,
+    logger=wandb_logger,
+    )
 
 # Train!
 trainer.fit(model, dataloader)

@@ -118,8 +118,6 @@ class DDPM(pl.LightningModule):
             print(" +++++++++++ WARNING: RESETTING NUM_EMA UPDATES TO ZERO +++++++++++ ")
             assert self.use_ema
             self.model_ema.reset_num_updates()
-        
-        # self.symmetry_mask=None
 
         self.register_schedule(given_betas=given_betas, beta_schedule=beta_schedule, timesteps=timesteps,
                                linear_start=linear_start, linear_end=linear_end, cosine_s=cosine_s)
@@ -396,8 +394,6 @@ class DDPM(pl.LightningModule):
         else:
             raise NotImplementedError(f"Parameterization {self.parameterization} not yet supported")
 
-        
-        print(model_out.shape)
         loss = self.get_loss(model_out, target, mean=False).mean(dim=[1, 2, 3])
 
         log_prefix = 'train' if self.training else 'val'

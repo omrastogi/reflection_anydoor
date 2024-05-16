@@ -25,17 +25,23 @@ disable_verbosity()
 if save_memory:
     enable_sliced_attention()
 
+model = None 
+ddim_sampler = None
+text_encoder = None
 
-config = OmegaConf.load('./configs/inference.yaml')
-model_ckpt =  config.pretrained_model
-model_config = config.config_file
+def load_model(model_ckpt=None):
+    global model, ddim_sampler, text_encoder
 
-model = create_model(model_config ).cpu()
-print(model_ckpt)
-model.load_state_dict(load_state_dict(model_ckpt, location='cuda'))
-model = model.cuda()
-ddim_sampler = DDIMSampler(model)
-text_encoder = TextEncoder()
+    config = OmegaConf.load('./configs/inference.yaml')
+    if not model_ckpt:
+        model_ckpt =  config.pretrained_model
+    model_config = config.config_file
+
+    model = create_model(model_config ).cpu()
+    model.load_state_dict(load_state_dict(model_ckpt, location='cuda'))
+    model = model.cuda()
+    ddim_sampler = DDIMSampler(model)
+    text_encoder = TextEncoder()
 
 
 
@@ -49,8 +55,7 @@ def aug_data_mask(image, mask):
     transformed_mask = transformed["mask"]
     return transformed_image, transformed_mask
 
-
-def process_pairs(ref_image, ref_mask, tar_image, tar_mask):
+def my_process_pairs(ref_image, ref_mask, tar_image, tar_mask):
     # ========= Reference ===========
     # ref expand 
     ref_box_yyxx = get_bbox_from_mask(ref_mask)
@@ -58,7 +63,11 @@ def process_pairs(ref_image, ref_mask, tar_image, tar_mask):
     # ref filter mask 
     ref_mask_3 = np.stack([ref_mask,ref_mask,ref_mask],-1)
     masked_ref_image = ref_image * ref_mask_3 + np.ones_like(ref_image) * 255 * (1-ref_mask_3)
-
+    
+    rev_masked_ref_image = ref_image * (1 - ref_mask_3) + np.ones_like(ref_image) * 255 * ref_mask_3
+    rev_masked_ref_image = pad_to_square(rev_masked_ref_image, pad_value = 255, random = False)
+    rev_masked_ref_image = cv2.resize(rev_masked_ref_image, (224,224) ).astype(np.uint8)
+    
     y1,y2,x1,x2 = ref_box_yyxx
     masked_ref_image = masked_ref_image[y1:y2,x1:x2,:]
     ref_mask = ref_mask[y1:y2,x1:x2]
@@ -85,7 +94,99 @@ def process_pairs(ref_image, ref_mask, tar_image, tar_mask):
     ref_mask_3 = np.stack([ref_mask_compose,ref_mask_compose,ref_mask_compose],-1)
     ref_image_collage = sobel(masked_ref_image_compose, ref_mask_compose/255)
     # removing the sobel features
-    # ref_image_collage = np.zeros_like(masked_ref_image_compose)
+    ref_image_collage = np.zeros_like(masked_ref_image_compose)
+
+    # ========= Target ===========
+    tar_box_yyxx = get_bbox_from_mask(tar_mask)
+    tar_box_yyxx = expand_bbox(tar_mask, tar_box_yyxx, ratio=[1.1,1.2])
+
+    # crop
+    tar_box_yyxx_crop =  expand_bbox(tar_image, tar_box_yyxx, ratio=[1.5, 3])    #1.2 1.6
+    tar_box_yyxx_crop = box2squre(tar_image, tar_box_yyxx_crop) # crop box
+    y1,y2,x1,x2 = tar_box_yyxx_crop
+
+    cropped_target_image = tar_image[y1:y2,x1:x2,:]
+    tar_box_yyxx = box_in_box(tar_box_yyxx, tar_box_yyxx_crop)
+    y1,y2,x1,x2 = tar_box_yyxx
+
+    # collage
+    ref_image_collage = cv2.resize(ref_image_collage, (x2-x1, y2-y1))
+    ref_mask_compose = cv2.resize(ref_mask_compose.astype(np.uint8), (x2-x1, y2-y1))
+    ref_mask_compose = (ref_mask_compose > 128).astype(np.uint8)
+
+    collage = cropped_target_image.copy() 
+    collage[y1:y2,x1:x2,:] = ref_image_collage
+
+    collage_mask = cropped_target_image.copy() * 0.0
+    collage_mask[y1:y2,x1:x2,:] = 1.0
+     
+    # the size before pad
+    H1, W1 = collage.shape[0], collage.shape[1]
+    cropped_target_image = pad_to_square(cropped_target_image, pad_value = 0, random = False).astype(np.uint8)
+    collage = pad_to_square(collage, pad_value = 0, random = False).astype(np.uint8)
+    collage_mask = pad_to_square(collage_mask, pad_value = -1, random = False).astype(np.uint8)
+
+    # the size after pad
+    H2, W2 = collage.shape[0], collage.shape[1]
+    cropped_target_image = cv2.resize(cropped_target_image, (512,512)).astype(np.float32)
+    collage = cv2.resize(collage, (512,512)).astype(np.float32)
+    collage_mask  = (cv2.resize(collage_mask, (512,512)).astype(np.float32) > 0.5).astype(np.float32)
+    
+    masked_ref_image_aug = rev_masked_ref_image 
+    
+    cv2.imwrite('inf_image.png', ref_image)
+    cv2.imwrite('inf_ref.png', masked_ref_image_aug)
+    cv2.imwrite('inf_cropped_target.png', cropped_target_image)
+    cv2.imwrite('inf_hint.png', collage)
+
+
+    masked_ref_image_aug = masked_ref_image_aug  / 255 
+    cropped_target_image = cropped_target_image / 127.5 - 1.0
+    collage = collage / 127.5 - 1.0 
+    collage = np.concatenate([collage, collage_mask[:,:,:1]  ] , -1)
+    # collage = masked_ref_image_aug.copy()
+
+    item = dict(ref=masked_ref_image_aug.copy(), jpg=cropped_target_image.copy(), hint=collage.copy(), extra_sizes=np.array([H1, W1, H2, W2]), tar_box_yyxx_crop=np.array( tar_box_yyxx_crop ) ) 
+    return item
+
+
+def process_pairs(ref_image, ref_mask, tar_image, tar_mask):
+    global model, ddim_sampler, text_encoder
+
+    # ========= Reference ===========
+    # ref expand 
+    ref_box_yyxx = get_bbox_from_mask(ref_mask)
+
+    # ref filter mask 
+    ref_mask_3 = np.stack([ref_mask,ref_mask,ref_mask],-1)
+    masked_ref_image = ref_image * ref_mask_3 + np.ones_like(ref_image) * 255 * (1-ref_mask_3)
+    y1,y2,x1,x2 = ref_box_yyxx
+    masked_ref_image = masked_ref_image[y1:y2,x1:x2,:]
+    ref_mask = ref_mask[y1:y2,x1:x2]
+
+
+    ratio = np.random.randint(12, 13) / 10
+    masked_ref_image, ref_mask = expand_image_mask(masked_ref_image, ref_mask, ratio=ratio)
+    ref_mask_3 = np.stack([ref_mask,ref_mask,ref_mask],-1)
+
+    # to square and resize
+    masked_ref_image = pad_to_square(masked_ref_image, pad_value = 255, random = False)
+    masked_ref_image = cv2.resize(masked_ref_image, (224,224) ).astype(np.uint8)
+
+    ref_mask_3 = pad_to_square(ref_mask_3 * 255, pad_value = 0, random = False)
+    ref_mask_3 = cv2.resize(ref_mask_3, (224,224) ).astype(np.uint8)
+    ref_mask = ref_mask_3[:,:,0]
+
+    # ref aug 
+    masked_ref_image_aug = masked_ref_image #aug_data(masked_ref_image) 
+
+    # collage aug 
+    masked_ref_image_compose, ref_mask_compose = masked_ref_image, ref_mask #aug_data_mask(masked_ref_image, ref_mask) 
+    masked_ref_image_aug = masked_ref_image_compose.copy()
+    ref_mask_3 = np.stack([ref_mask_compose,ref_mask_compose,ref_mask_compose],-1)
+    ref_image_collage = sobel(masked_ref_image_compose, ref_mask_compose/255)
+    # removing the sobel features
+    ref_image_collage = np.zeros_like(masked_ref_image_compose)
 
     # ========= Target ===========
     tar_box_yyxx = get_bbox_from_mask(tar_mask)
@@ -163,7 +264,7 @@ def crop_back( pred, tar_image,  extra_sizes, tar_box_yyxx_crop):
 
 
 def inference_single_image(ref_image, ref_mask, tar_image, tar_mask, guidance_scale = 5.0, text=""):
-    item = process_pairs(ref_image, ref_mask, tar_image, tar_mask)
+    item = my_process_pairs(ref_image, ref_mask, tar_image, tar_mask)
     ref = item['ref'] * 255
     tar = item['jpg'] * 127.5 + 127.5
     hint = item['hint'] * 127.5 + 127.5
@@ -237,6 +338,15 @@ def inference_single_image(ref_image, ref_mask, tar_image, tar_mask, guidance_sc
     gen_image = crop_back(pred, tar_image, sizes, tar_box_yyxx_crop) 
     return gen_image
 
+def get_epoch(filepath):
+    import re
+    pattern = r"(epoch=)(\d+)"
+    match = re.search(pattern, filepath)
+    if match:
+        return int(match.group(2))  # Convert captured epoch string to integer
+    else:
+        return None
+
 
 if __name__ == '__main__': 
     '''
@@ -276,24 +386,31 @@ if __name__ == '__main__':
     DConf = OmegaConf.load('./configs/datasets.yaml')
     root_dir = DConf.Train.Mirrors.data_dir
     root_dir = "/data/om/reflection_anydoor/dataset/train"
+
     masks_dir = f"{root_dir}/masks"
     images_dir = f"{root_dir}/deformed"
-    save_dir = './REVMASK/DEFORMED_TESTSET_EPOCH6'
+    # model_ckpt = "/data/om/reflection_anydoor/important_checkpoints/counterfactual_text_cond_rev_mask_epoch=999-step=238999.ckpt"
+    model_ckpt = "/data/om/reflection_anydoor/important_checkpoints/epoch=410-step=98228.ckpt"
+    save_dir = f'./SYM_MASK/SELECTED_TESTSET_EPOCH{get_epoch(model_ckpt)}'
+    print("testing selected for prev 410 model")
+    selected_files_from_training = ["5443_640x512.png", "7_512x640.png", "5449_640x512.png", "4936_512x640.png", "4607_512x640.png", "4480_512x640.png" "4452_512x640.png"]
+    load_model(model_ckpt)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
-    out_dir = os.path.join(save_dir, "output")
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir, exist_ok=True)
-    for image_name in os.listdir(masks_dir):
+
+    # out_dir = os.path.join(save_dir, "output")
+    # if not os.path.exists(out_dir):
+    #     os.makedirs(out_dir, exist_ok=True)
+
+    # for image_name in os.listdir(images_dir):
+    for image_name in selected_files_from_training:
         ref_mask_path = os.path.join(masks_dir, image_name)
         ref_image_path = os.path.join(images_dir, image_name)
 
         ref_mask = cv2.imread(ref_mask_path)
-        # ref_mask = cv2.flip(ref_mask, 1)  # Flip the mask horizontally
         ref_mask = cv2.cvtColor(ref_mask, cv2.COLOR_BGR2GRAY)
 
         ref_image = cv2.imread(ref_image_path)
-        ref_image = cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB)
 
         ref_mask = (ref_mask > 0).astype(np.uint8)
         tar_mask = ref_mask.copy()
@@ -305,10 +422,6 @@ if __name__ == '__main__':
         vis_image = cv2.hconcat([ref_image, gen_image])
         cv2.imwrite(gen_path, vis_image[:,::-1])
 
-        gen_out_path = os.path.join(save_dir, "output", image_name)
-        cv2.imwrite(gen_out_path, gen_image[:,::-1])
 
-
-
-    
-
+        # gen_out_path = os.path.join(save_dir, "output", image_name)
+        # cv2.imwrite(gen_out_path, gen_image)
